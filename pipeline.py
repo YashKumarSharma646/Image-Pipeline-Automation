@@ -1,112 +1,103 @@
 import os
-import zipfile
-import smtplib
-from email.message import EmailMessage
+import shutil
+import base64
 from icrawler.builtin import BingImageCrawler
 from PIL import Image
-
-# Folder paths
-DOWNLOAD_DIR = "downloads"
-PROCESSED_DIR = "processed"
-OUTPUT_DIR = "output"
-
-# Environment variables (must be set in Render)
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-APP_PASSWORD = os.getenv("APP_PASSWORD")
+import resend
 
 
-# -------------------------------
-# Folder Management
-# -------------------------------
+# =========================
+# Folder Setup
+# =========================
+
+DOWNLOAD_FOLDER = "downloads"
+PROCESSED_FOLDER = "processed"
+OUTPUT_FOLDER = "output"
+
 
 def create_folders():
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    os.makedirs(PROCESSED_DIR, exist_ok=True)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+    os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 
 def clear_folder(folder_path):
-    if not os.path.exists(folder_path):
-        return
-    for file in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, file)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
+    if os.path.exists(folder_path):
+        for file in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
 
 
-# -------------------------------
-# Image Download
-# -------------------------------
+# =========================
+# Download Images
+# =========================
 
 def download_images(keyword, num_images):
-    crawler = BingImageCrawler(storage={'root_dir': DOWNLOAD_DIR})
+    crawler = BingImageCrawler(storage={'root_dir': DOWNLOAD_FOLDER})
     crawler.crawl(keyword=keyword, max_num=num_images)
 
 
-# -------------------------------
-# Image Processing
-# -------------------------------
+# =========================
+# Process Images
+# =========================
 
 def process_images():
-    for file in os.listdir(DOWNLOAD_DIR):
-        input_path = os.path.join(DOWNLOAD_DIR, file)
+    for filename in os.listdir(DOWNLOAD_FOLDER):
+        input_path = os.path.join(DOWNLOAD_FOLDER, filename)
 
         try:
-            img = Image.open(input_path)
+            with Image.open(input_path) as img:
+                # Resize to 50%
+                width, height = img.size
+                resized_img = img.resize((width // 2, height // 2))
 
-            # Resize to 50%
-            width, height = img.size
-            img = img.resize((width // 2, height // 2))
+                # Convert to grayscale
+                gray_img = resized_img.convert("L")
 
-            # Convert to grayscale
-            img = img.convert("L")
-
-            output_path = os.path.join(PROCESSED_DIR, file)
-            img.save(output_path)
+                output_path = os.path.join(PROCESSED_FOLDER, filename)
+                gray_img.save(output_path)
 
         except Exception as e:
-            print(f"Error processing {file}: {e}")
+            print(f"Error processing {filename}: {e}")
 
 
-# -------------------------------
+# =========================
 # Zip Processed Images
-# -------------------------------
+# =========================
 
 def zip_images():
-    zip_path = os.path.join(OUTPUT_DIR, "processed_images.zip")
-
-    with zipfile.ZipFile(zip_path, 'w') as zipf:
-        for file in os.listdir(PROCESSED_DIR):
-            file_path = os.path.join(PROCESSED_DIR, file)
-            zipf.write(file_path, arcname=file)
-
-    return zip_path
+    zip_path = os.path.join(OUTPUT_FOLDER, "processed_images")
+    shutil.make_archive(zip_path, 'zip', PROCESSED_FOLDER)
+    return zip_path + ".zip"
 
 
-# -------------------------------
-# Email Sending
-# -------------------------------
+# =========================
+# Send Email via Resend
+# =========================
+
+resend.api_key = os.getenv("RESEND_API_KEY")
+
 
 def send_email(receiver_email, zip_path):
 
-    if not SENDER_EMAIL or not APP_PASSWORD:
-        raise ValueError("Email environment variables are not set.")
+    if not resend.api_key:
+        raise ValueError("RESEND_API_KEY not set.")
 
-    msg = EmailMessage()
-    msg['Subject'] = "Processed Images"
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = receiver_email
-    msg.set_content("Attached are your processed images.")
-
-    with open(zip_path, 'rb') as f:
+    with open(zip_path, "rb") as f:
         file_data = f.read()
-        msg.add_attachment(
-            file_data,
-            maintype='application',
-            subtype='zip',
-            filename="processed_images.zip"
-        )
 
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-        smtp.login(SENDER_EMAIL, APP_PASSWORD)
-        smtp.send_message(msg)
+    encoded_file = base64.b64encode(file_data).decode()
+
+    resend.Emails.send({
+        "from": "onboarding@resend.dev",
+        "to": receiver_email,
+        "subject": "Processed Images",
+        "html": "<p>Your processed images are attached.</p>",
+        "attachments": [
+            {
+                "filename": "processed_images.zip",
+                "content": encoded_file
+            }
+        ]
+    })
