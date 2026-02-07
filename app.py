@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request
+from threading import Thread
 from pipeline import (
     create_folders,
+    clear_folder,
     download_images,
     process_images,
     zip_images,
@@ -9,6 +11,19 @@ from pipeline import (
 
 app = Flask(__name__)
 
+def run_pipeline(keyword, num_images, email):
+    create_folders()
+
+    clear_folder("downloads")
+    clear_folder("processed")
+    clear_folder("output")
+
+    download_images(keyword, num_images)
+    process_images()
+    zip_path = zip_images()
+    send_email(email, zip_path)
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
@@ -16,15 +31,13 @@ def index():
         num_images = int(request.form["num_images"])
         email = request.form["email"]
 
-        create_folders()
-        download_images(keyword, num_images)
-        process_images()
-        zip_path = zip_images()
-        send_email(email, zip_path)
+        thread = Thread(target=run_pipeline, args=(keyword, num_images, email))
+        thread.start()
 
-        return "Pipeline completed successfully. Check your email."
+        return "Processing started. You will receive an email once completed."
 
     return render_template("index.html")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
