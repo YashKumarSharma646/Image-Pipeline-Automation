@@ -146,15 +146,14 @@ This key is securely configured in the Render dashboard and not stored in source
 
 ### Web Interface Screenshot
 
-!(image.png)
-!(image-1.png)
+![Web Interface](assets/image.png)
 
+![Processing Example](assets/image-1.png)
 ---
 
 ### Email Received Screenshot
 
-!(image-2.png)
-
+![Email Received](assets/image-2.png)
 ---
 
 ## Key Engineering Decisions
